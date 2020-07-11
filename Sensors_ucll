@@ -43,6 +43,8 @@
 #define SDS011_CONNECTED
 // PM2.5
 #define SDS011_CONNECTED
+int SDSdelay = 0; //counter
+int over = 5; // Number of minutes for activating particulate matter sensor -> const.. better
 
 // Number of serial port the SDS011 is connected to. Either Serial1 or Serial2
 #ifdef SDS011_CONNECTED
@@ -123,22 +125,6 @@ const lmic_pinmap lmic_pins = {
   .dio = {PIN_XB1_INT, PIN_XB1_INT, LMIC_UNUSED_PIN},
 };
 
-// Not sure if the following code is in right place
-
-const long time2sleep = 300000;
-
-void send2Sleep(long mills) {
- 
-  senseBoxIO.powerUART(false);
-  senseBoxIO.powerI2C(false);
-  delay(250);
-  senseBoxIO.powerUART(true);
-  delay(250);
-  SDS_UART_PORT.begin(9600);
-  senseBoxIO.powerI2C(true);
-  delay(250);
-}
-
 void onEvent (ev_t ev) {
   senseBoxIO.statusGreen();
   DEBUG(os_getTime());
@@ -184,7 +170,6 @@ void onEvent (ev_t ev) {
         DEBUG(F(" bytes of payload"));
       }
       // Schedule next transmission
-      send2Sleep(time2sleep);
       os_setTimedCallback(&sendjob, os_getTime() + sec2osticks(TX_INTERVAL), do_send);
       break;
     case EV_LOST_TSYNC:
@@ -265,19 +250,43 @@ void do_send(osjob_t* j) {
 
     //-----PM-----//
 #ifdef SDS011_CONNECTED
+
     uint8_t attempt = 0;
-    while (attempt < 5) {
-      bool error = SDS.read(&pm25, &pm10);
-      if (!error) {
-        DEBUG(F("PM10: "));
-        DEBUG(pm10);
-        message.addUint16(pm10 * 10);
-        DEBUG(F("PM2.5: "));
-        DEBUG(pm25);
-        message.addUint16(pm25 * 10);
-        break;
+    float pm10, pm25;
+    SDSdelay ++;
+    Serial.print (SDSdelay);
+    Serial.print ("");
+    // if (SDSdelay <over-1) senseBoxIO.powerUART (true); // or (false) ??
+    if (SDSdelay == over - 1) {
+      Serial.println ("SDS SensornON");
+      senseBoxIO.powerUART (true);
+      delay (3000);
+      SDS_UART_PORT.begin (9600);
+    }
+    else {
+      senseBoxIO.powerUART (false);
+      Serial.println ("SDS SensornOFF");
+    }
+
+    if (SDSdelay >= over) {
+      Serial.println ("SDS-sensor read");
+      while (attempt < 10) {
+
+        bool error = SDS.read(&pm25, &pm10);
+        if (!error) {
+          DEBUG(F("PM10: "));
+          DEBUG(pm10);
+          message.addUint16(pm10 * 10);
+          DEBUG(F("PM2.5: "));
+          DEBUG(pm25);
+          message.addUint16(pm25 * 10);
+          break;
+        }
+        attempt++;
       }
-      attempt++;
+      senseBoxIO.powerUART(false);
+      Serial.println("SDS SensornOFF");
+      SDSdelay = 0;
     }
 #endif
 
